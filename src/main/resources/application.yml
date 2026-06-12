@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/spring-projects/spring-boot/main/spring-boot-project/spring-boot-autoconfigure/src/main/resources/META-INF/additional-spring-configuration-metadata.json
+server:
+  port: 8080
+
+spring:
+  application:
+    name: AnimeShop
+  
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/animeshop?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&useUnicode=true&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: AnimeiShop
+    password: 123456
+    virtual-host: AnimeiShop
+    publisher-confirm-type: correlated # 开启publisher confirm机制，并设置confirm类型
+    connection-timeout: 1s
+    template:
+      retry: # ✅ 重试配置应该在这里
+        enabled: true
+        max-attempts: 3
+        initial-interval: 1000ms
+        multiplier: 1
+    listener:
+      simple:
+        prefetch: 1
+        concurrency: 5
+        max-concurrency: 5
+        acknowledge-mode: manual
+        retry:
+          enabled: true # 开启消费者失败重试
+          initial-interval: 1000ms # 初始的失败等待时长为1秒
+          multiplier: 1 # 下次失败的等待时长倍数，下次等待时长 = multiplier * last-interval
+          max-attempts: 3 # 最大重试次数
+          stateless: true # true无状态; false有状态。如果业务中包含事务，这里改为false
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.dong.entity
+
+jwt:
+  secret: your-256-bit-secret-key-here-must-be-long-enough
+  expiration-time: 3600000
+
+logging:
+  level:
+    com.dong.animeshop: debug
+    org.springframework.web: info
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+  charset:
+    console: UTF-8
+
+# 雪花算法配置
+snowflake:
+  workerId: 1
+  datacenterId: 1
+
+# application.yml
+order:
+  expire:
+    minutes: 30  # 普通订单30分钟过期
+
+seckill:
+  order:
+    expire:
+      minutes: 10  # 秒杀订单10分钟过期
+
+task:
+  home:
+    hot_shop_cron: "0 0 2 * * ?"  # 热销商品每天凌晨2点统计
+    new_shop_cron: "0 0 2 * * ?"  # 新品商品每天凌晨2点统计
+
+  seckill:
+    order_warm_cron: "0 */1 * * * ?" # 秒杀订单预热，实时统计库存
+
+
