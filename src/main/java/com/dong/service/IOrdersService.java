@@ -20,9 +20,9 @@ public interface IOrdersService extends IService<Orders> {
 
     Result<AddOrderVO> createOrder(OrderDTO orderDTO);
 
-    Result<PageDTO<GetOrdersVO>> getOrders(Integer pageNum, Integer status);
+    Result<PageDTO<GetOrdersVO>> getOrders(Integer page, Integer pageSize, Integer status);
 
-    Result<String> cancelOrder(Long orderId);
+    Result<String> cancelOrder(String orderNo);
 
-    Result<String> confirmOrder(Long orderId);
+    Result<String> confirmOrder(String orderNo);
 }

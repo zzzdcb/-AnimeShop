@@ -1,6 +1,5 @@
 package com.dong.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dong.common.RabbitMQProducer;
 import com.dong.common.Result;
@@ -65,46 +64,60 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         if (address == null) {
             return Result.error("地址不存在");
         }
+        // 检查地址所有权
+        if (!address.getUserId().equals(userId)) {
+            return Result.error("地址不存在");
+        }
 
-        // 2. 提取商品信息
-        List<Long> productIds = orderDTO.getItems().stream()
-                .map(OrderItemDTO::getProductId)
-                .collect(Collectors.toList());
-
+        // 2. 提取商品信息（合并相同 productId 的数量）
         Map<Long, Integer> quantityMap = orderDTO.getItems().stream()
-                .collect(Collectors.toMap(OrderItemDTO::getProductId, OrderItemDTO::getQuantity));
+                .collect(Collectors.toMap(
+                        OrderItemDTO::getProductId,
+                        OrderItemDTO::getQuantity,
+                        Integer::sum));
+
+        List<Long> productIds = quantityMap.keySet().stream().toList();
 
         // 3. 查询商品
         List<Product> products = productService.listByIds(productIds);
 
-        // 4. 校验库存
-        List<String> failProducts = products.stream()
-                .filter(product -> product.getStock() < quantityMap.get(product.getId()))
-                .map(Product::getName)
-                .toList();
-
-        if (!failProducts.isEmpty()) {
-            return Result.error("商品" + failProducts + "库存不足");
+        // 4. 校验商品存在性
+        if (products.size() != productIds.size()) {
+            List<Long> foundIds = products.stream().map(Product::getId).toList();
+            List<Long> missingIds = productIds.stream()
+                    .filter(id -> !foundIds.contains(id))
+                    .toList();
+            return Result.error("商品ID " + missingIds + " 不存在");
         }
 
-        // 5. 生成订单ID
+        // 5. 校验商品上架状态
+        List<Product> offShelfProducts = products.stream()
+                .filter(product -> product.getStatus() != null && product.getStatus() != 1)
+                .toList();
+        if (!offShelfProducts.isEmpty()) {
+            String names = offShelfProducts.stream().map(Product::getName).collect(Collectors.joining(", "));
+            return Result.error("商品「" + names + "」已下架，无法购买");
+        }
+
+        // 6. 生成订单ID
         Long orderId = snowflakeIdWorker.nextId();
         String orderNo = snowflakeIdWorker.nextIdStr();
 
-        // 6. 批量更新库存
-        String caseSql = products.stream()
-                .map(p -> "WHEN " + p.getId() + " THEN stock - " + quantityMap.get(p.getId()))
-                .collect(Collectors.joining(" "));
+        // 7. 原子扣减库存（每个商品单独 UPDATE + WHERE stock >= ?）
+        for (Product product : products) {
+            Integer quantity = quantityMap.get(product.getId());
+            if (quantity == null) continue;
+            boolean success = productService.lambdaUpdate()
+                    .eq(Product::getId, product.getId())
+                    .ge(Product::getStock, quantity)
+                    .setSql("stock = stock - " + quantity)
+                    .update();
+            if (!success) {
+                throw new RuntimeException("商品「" + product.getName() + "」库存不足");
+            }
+        }
 
-        String ids = productIds.stream()
-                .map(String::valueOf)
-                .collect(Collectors.joining(","));
-
-        productService.getBaseMapper().update(null,
-                new UpdateWrapper<Product>().setSql("stock = CASE id " + caseSql + " END")
-                        .apply("id IN (" + ids + ")"));
-
-        // 7. 构建订单明细
+        // 8. 构建订单明细
         List<OrderItem> orderItems = products.stream()
                 .map(product -> {
                     OrderItem item = new OrderItem();
@@ -119,19 +132,19 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
 
         orderItemService.saveBatch(orderItems);
 
-        // 8. 计算总金额
+        // 9. 计算总金额
         BigDecimal totalAmount = orderItems.stream()
                 .map(item -> item.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 9. 保存订单
+        // 10. 保存订单
         Orders order = new Orders();
         order.setId(orderId);
         order.setOrderNo(orderNo);
         order.setUserId(userId);
         order.setTotalAmount(totalAmount);
         order.setPayAmount(totalAmount);
-        order.setStatus(1);
+        order.setStatus(2);
         order.setAddressSnapshot(address.getReceiver() + " " + address.getPhone() + " " + address.getAddress());
         order.setRemark(orderDTO.getRemark());
         order.setCreateTime(LocalDateTime.now());
@@ -149,19 +162,20 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * 获取订单列表
      */
     @Override
-    public Result<PageDTO<GetOrdersVO>> getOrders(Integer pageNum, Integer status) {
+    public Result<PageDTO<GetOrdersVO>> getOrders(Integer page, Integer pageSize, Integer status) {
         // 1. 获取登录用户ID
         Long userId = SecurityUtils.getCurrentUser().getId();
         // 2. 转成分页参数查询（工具类实现）
         PageQuery pageQuery = new PageQuery();
-        pageQuery.setPageNo(pageNum);
+        pageQuery.setPageNo(page);
+        pageQuery.setPageSize(pageSize);
         Page<Orders> pageByCreateTime = pageQuery.toMpPageDefaultSortByCreateTime();
-        Page<Orders> page = lambdaQuery()
+        Page<Orders> pageResult = lambdaQuery()
                 .eq(Orders::getUserId, userId)
                 .eq(status != null, Orders::getStatus, status)
                 .page(pageByCreateTime);
         // 3. 调用工具类转成VO返回
-        PageDTO<GetOrdersVO> getOrdersVOPageDTO = PageDTO.of(page, this::convertOrderVO);
+        PageDTO<GetOrdersVO> getOrdersVOPageDTO = PageDTO.of(pageResult, this::convertOrderVO);
         return Result.success(getOrdersVOPageDTO);
     }
 
@@ -169,7 +183,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * 取消订单
      */
     @Override
-    public Result<String> cancelOrder(Long orderId) {
+    @Transactional(rollbackFor = Exception.class)
+    public Result<String> cancelOrder(String orderNo) {
         // 1. 获取登录用户ID
         Long userId = SecurityUtils.getCurrentUser().getId();
         if (userId == null) {
@@ -178,15 +193,16 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 2. 判断订单是否存在
         Orders orders = lambdaQuery()
                 .eq(Orders::getUserId, userId)
-                .eq(Orders::getId, orderId)
+                .eq(Orders::getOrderNo, orderNo)
                 .one();
         if (orders == null) {
             return Result.error("订单不存在");
         }
-        // 3. 判断订单状态，待付款和待发货状态都可以取消
+        Long orderId = orders.getId();
+        // 3. 判断订单状态，已完成和已取消的订单不能取消
         Integer status = orders.getStatus();
-        if (status != 0 && status != 1) {
-            return Result.error("订单状态错误，只能取消待付款或待发货的订单");
+        if (status == 3 || status == 4) {
+            return Result.error("已完成或已取消的订单不能取消");
         }
         // 4. 查询订单明细
         List<OrderItem> orderItemList = orderItemService.lambdaQuery()
@@ -204,19 +220,19 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                 .map(OrderItem::getProductName)
                 .toList();
         if (!failList.isEmpty()) {
-            log.error("恢复库存失败: orderId={}, 失败商品={}", orderId, failList);
+            log.error("恢复库存失败: orderNo={}, 失败商品={}", orderNo, failList);
             throw new RuntimeException("恢复库存失败");
         }
         // 6. 订单取消
         boolean update = lambdaUpdate()
                 .eq(Orders::getUserId, userId)
-                .eq(Orders::getId, orderId)
+                .eq(Orders::getOrderNo, orderNo)
                 .set(Orders::getStatus, 4)
                 .update();
         if (!update) {
             throw new RuntimeException("订单取消失败");
         }
-        log.info("订单取消成功: orderId={}", orderId);
+        log.info("订单取消成功: orderNo={}", orderNo);
         return Result.success("订单取消成功");
     }
 
@@ -224,7 +240,8 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
      * 确认收货
      */
     @Override
-    public Result<String> confirmOrder(Long orderId) {
+    @Transactional(rollbackFor = Exception.class)
+    public Result<String> confirmOrder(String orderNo) {
         // 1. 获取登录用户ID
         Long userId = SecurityUtils.getCurrentUser().getId();
         if (userId == null) {
@@ -233,7 +250,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 2. 校验
         Orders orders = lambdaQuery()
                 .eq(Orders::getUserId, userId)
-                .eq(Orders::getId, orderId)
+                .eq(Orders::getOrderNo, orderNo)
                 .one();
         if (orders == null) {
             return Result.error("订单不存在");
@@ -244,7 +261,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
         // 3. 订单确认
         boolean update = lambdaUpdate()
                 .eq(Orders::getUserId, userId)
-                .eq(Orders::getId, orderId)
+                .eq(Orders::getOrderNo, orderNo)
                 .set(Orders::getStatus, 3)
                 .update();
         // 4. 判断是否成功
@@ -301,7 +318,7 @@ public class OrdersServiceImpl extends ServiceImpl<OrdersMapper, Orders> impleme
                     return orderItemsVO;
                 }).toList();
         // 5. 封装订单VO
-        getOrderVO.setOrderId(orders.getId());
+        getOrderVO.setOrderId(String.valueOf(orders.getId()));
         getOrderVO.setOrderNo(orders.getOrderNo());
         getOrderVO.setPayAmount(orders.getPayAmount());
         getOrderVO.setStatus(orders.getStatus());

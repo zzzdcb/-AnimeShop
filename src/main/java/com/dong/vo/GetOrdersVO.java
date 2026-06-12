@@ -10,7 +10,7 @@ import java.util.List;
 @Data
 public class GetOrdersVO {
 
-    private Long orderId;
+    private String orderId;
     private String orderNo; // 订单号
     private BigDecimal payAmount; // 支付金额
     private Integer status; // 订单状态：0-待付款,1-待发货,2-待收货,3-待评价,4-已完成,5-已取消

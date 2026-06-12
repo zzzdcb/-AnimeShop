@@ -92,7 +92,7 @@ public class SeckillConsumer {
         orders.setId(snowflakeIdWorker.nextId());
         orders.setTotalAmount(totalAmount);
         orders.setPayAmount(payAmount);
-        orders.setStatus(1);
+        orders.setStatus(2);
         orders.setAddressSnapshot(JSONUtil.toJsonStr(address));
         orders.setRemark("秒杀订单");
         orders.setCreateTime(LocalDateTime.now());

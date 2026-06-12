@@ -7,6 +7,7 @@ import com.dong.dto.PageDTO;
 import com.dong.service.IOrdersService;
 import com.dong.vo.AddOrderVO;
 import com.dong.vo.GetOrdersVO;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,25 +27,26 @@ public class OrdersController {
     private final IOrdersService ordersService;
 
     @PostMapping
-    public Result<AddOrderVO> createOrder(@RequestBody OrderDTO orderDTO) {
+    public Result<AddOrderVO> createOrder(@Valid @RequestBody OrderDTO orderDTO) {
         return ordersService.createOrder(orderDTO);
     }
 
     @GetMapping
     public Result<PageDTO<GetOrdersVO>> getOrder(
-            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(value = "size", defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) Integer status
     ) {
-        return ordersService.getOrders(pageNum, status);
+        return ordersService.getOrders(page, pageSize, status);
     }
 
-    @DeleteMapping("/{orderId}/cancel")
-    public Result<String> cancelOrder(@PathVariable Long orderId) {
-        return ordersService.cancelOrder(orderId);
+    @DeleteMapping("/{orderNo}")
+    public Result<String> cancelOrder(@PathVariable String orderNo) {
+        return ordersService.cancelOrder(orderNo);
     }
 
-    @PostMapping("/{orderId}/confirm")
-    public Result<String> confirmOrder(@PathVariable Long orderId) {
-        return ordersService.confirmOrder(orderId);
+    @PostMapping("/{orderNo}/confirm")
+    public Result<String> confirmOrder(@PathVariable String orderNo) {
+        return ordersService.confirmOrder(orderNo);
     }
 }
