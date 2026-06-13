@@ -1,0 +1,22 @@
+body {
+  background-color: #f0f8ff; /* 设置浅灰色背景 */
+  margin: 0; /* 移除页面默认的外边距 */
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 动画进行中和离开时的状态 */
+.fade-slide-leave-active,
+.fade-slide-enter-active {
+  transition: all 0.3s; /* 所有属性变化在 0.3 秒内平滑过渡 */
+}
+
+.fade-slide-enter-from {
+  transform: translateX(-30px); /* 离屏元素从左边进入时，从 -30px 移动到 0px */
+  opacity: 0; /* 离屏元素从左边进入时，透明度为 0 */
+}
+
+.fade-slide-leave-to {
+  transform: translateX(30px); /* 离屏元素从右边离开时，从 30px 移动到 0px */
+  opacity: 0; /* 离屏元素从右边离开时，透明度为 0 */
+}

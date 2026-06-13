@@ -1,0 +1,15 @@
+# 自动检测文本文件
+* text=auto
+
+# 明确指定文本文件（包括 .gitignore）
+.gitignore text
+*.ts text eol=lf
+*.js text eol=lf  
+*.vue text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# 标记二进制文件
+*.png binary
+*.jpg binary
+*.ico binary

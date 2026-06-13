@@ -1,0 +1,8 @@
+dist
+node_modules
+.husky
+*.config.js
+vite.config.js
+pnpm-lock.yaml
+env.d.ts
+**/*.d.ts

@@ -41,3 +41,9 @@ npm-debug.log*
 *.temp
 *.tgz
 *.gz
+
+# 本地工具配置
+.claude/        
+.vscode/         
+.claude/
+.claude/
